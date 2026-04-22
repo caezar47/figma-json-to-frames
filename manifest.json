@@ -1,0 +1,20 @@
+{
+  "name": "JSON to frames",
+  "id": "1625482457282924023",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "figma",
+    "figjam"
+  ],
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": [
+      "*"
+    ],
+    "reasoning": "Подстановка данных из JSON в шаблон Figma: изображения по произвольным URL из полей JSON (createImageAsync). Хосты задаёт пользователь в данных."
+  }
+}
