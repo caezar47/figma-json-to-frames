@@ -3,6 +3,9 @@ figma.showUI(__html__, { width: 400, height: 470 });
 /** Отступ между правым краем шаблона и блоком GENERATED */
 const GENERATED_GAP = 40;
 
+/** Запрос остановки текущей генерации (кнопка «Прервать» в UI). */
+let cancelGenerationRequested = false;
+
 /**
  * @param {string | undefined} raw
  * @returns {string}
@@ -342,6 +345,11 @@ async function applyImageFill(node, value) {
 }
 
 figma.ui.onmessage = async (msg) => {
+    if (msg.type === 'cancel-generate') {
+        cancelGenerationRequested = true;
+        return;
+    }
+
     if (msg.type === 'preview-project') {
         const templateName = resolveTemplateName(msg.templateName);
         const template = findTemplateNode(templateName);
@@ -354,6 +362,7 @@ figma.ui.onmessage = async (msg) => {
     }
 
     if (msg.type === 'generate') {
+        cancelGenerationRequested = false;
         const data = msg.data;
         const templateName = resolveTemplateName(msg.templateName);
 
@@ -395,7 +404,9 @@ figma.ui.onmessage = async (msg) => {
 
         let imageUrlLoadFailures = 0;
 
-        for (const item of data) {
+        generateLoop: for (const item of data) {
+            if (cancelGenerationRequested) break generateLoop;
+
             const clone = template.clone();
 
             clone.x = 0;
@@ -419,6 +430,7 @@ figma.ui.onmessage = async (msg) => {
             dataNodes.push(...clone.findAll(hasDataMarker));
 
             for (const node of dataNodes) {
+                if (cancelGenerationRequested) break generateLoop;
                 /* контейнер [data][group]key — скрытие при null выше */
                 if (parseDataGroupFieldKey(node.name)) continue;
 
@@ -436,7 +448,9 @@ figma.ui.onmessage = async (msg) => {
                         continue;
                     }
                     try {
+                        if (cancelGenerationRequested) break generateLoop;
                         await figma.loadFontAsync(node.fontName);
+                        if (cancelGenerationRequested) break generateLoop;
                         node.characters = String(value);
                     } catch (e) {
                         console.log('Font error:', node.name, e);
@@ -445,12 +459,17 @@ figma.ui.onmessage = async (msg) => {
                     continue;
                 }
 
-                /* null / undefined — не подставляем в не-текстовые слои */
-                if (value === undefined || value === null) continue;
+                /* null / undefined — скрываем слой картинки/слота (как у текста) */
+                if (value === undefined || value === null) {
+                    hideDataMarkerNode(node);
+                    continue;
+                }
 
                 if (isImageSource(value)) {
                     try {
+                        if (cancelGenerationRequested) break generateLoop;
                         const ok = await applyImageFill(node, value);
+                        if (cancelGenerationRequested) break generateLoop;
                         if (!ok) {
                             hideDataMarkerNode(node);
                         }
@@ -464,6 +483,7 @@ figma.ui.onmessage = async (msg) => {
 
                 const figmaLayerName = parseFigmaImageLayerName(value);
                 if (figmaLayerName) {
+                    if (cancelGenerationRequested) break generateLoop;
                     const ok = applyImageFillFromNamedLayer(
                         node,
                         figmaLayerName
@@ -477,7 +497,9 @@ figma.ui.onmessage = async (msg) => {
             /* await applyProjectTheme(clone, projectTheme); — стили из макета */
         }
 
-        if (imageUrlLoadFailures > 0) {
+        if (cancelGenerationRequested) {
+            figma.notify('Генерация остановлена');
+        } else if (imageUrlLoadFailures > 0) {
             figma.notify(
                 'Готово. Не удалось загрузить ' +
                     imageUrlLoadFailures +
